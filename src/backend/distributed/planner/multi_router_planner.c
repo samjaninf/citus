@@ -627,9 +627,24 @@ ErrorIfInsertSelectQueryNotSupported(Query *queryTree, RangeTblEntry *insertRte,
 {
 	Query *subquery = NULL;
 	Oid selectPartitionColumnTableId = InvalidOid;
+	ListCell *rangeTableCell = NULL;
 
 	/* we only do this check for INSERT ... SELECT queries */
 	AssertArg(InsertSelectQuery(queryTree));
+
+	/* we do not expect to see a view in modify target */
+	foreach(rangeTableCell, queryTree->rtable)
+	{
+		RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(rangeTableCell);
+		if (rangeTableEntry->rtekind == RTE_RELATION &&
+			rangeTableEntry->relkind == RELKIND_VIEW)
+		{
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("cannot perform distributed planning for the given "
+								   "modification"),
+							errdetail("Cannot modify views")));
+		}
+	}
 
 	subquery = subqueryRte->subquery;
 
@@ -755,6 +770,38 @@ ErrorIfMultiTaskRouterSelectQueryUnsupported(Query *query)
 
 
 /*
+ * FindOriginalTableId recursively traverses query tree to find actual relation
+ * id that targetVar refers to. It returns InvolidOid if Var is a non-relational
+ * or computed value from an inner subquery.
+ */
+static Oid
+FindOriginalTableId(Var *targetVar, Query *query)
+{
+	Oid tableId = InvalidOid;
+
+	List *rangeTableEntryList = query->rtable;
+	RangeTblEntry *rte = list_nth(rangeTableEntryList, targetVar->varno - 1);
+	if (rte->rtekind == RTE_RELATION)
+	{
+		tableId = rte->relid;
+	}
+	else if (rte->rtekind == RTE_SUBQUERY)
+	{
+		Query *subquery = rte->subquery;
+		TargetEntry *subqueryTargetEntry = list_nth(subquery->targetList,
+													targetVar->varattno - 1);
+		if (IsA(subqueryTargetEntry->expr, Var))
+		{
+			Var *subqueryVar = (Var *) subqueryTargetEntry->expr;
+			tableId = FindOriginalTableId(subqueryVar, subquery);
+		}
+	}
+
+	return tableId;
+}
+
+
+/*
  * ErrorIfInsertPartitionColumnDoesNotMatchSelect checks whether the INSERTed table's
  * partition column value matches with the any of the SELECTed table's partition column.
  *
@@ -783,6 +830,7 @@ ErrorIfInsertPartitionColumnDoesNotMatchSelect(Query *query, RangeTblEntry *inse
 			AttrNumber originalAttrNo = get_attnum(insertRelationId,
 												   targetEntry->resname);
 			TargetEntry *subqeryTargetEntry = NULL;
+			Var *targetVar = NULL;
 
 			if (originalAttrNo != insertPartitionColumn->varattno)
 			{
@@ -805,8 +853,8 @@ ErrorIfInsertPartitionColumnDoesNotMatchSelect(Query *query, RangeTblEntry *inse
 			}
 
 			partitionColumnsMatch = true;
-			*selectPartitionColumnTableId = subqeryTargetEntry->resorigtbl;
-
+			targetVar = (Var *) subqeryTargetEntry->expr;
+			*selectPartitionColumnTableId = FindOriginalTableId(targetVar, subquery);
 			break;
 		}
 	}
@@ -1001,6 +1049,15 @@ ErrorIfModifyQueryNotSupported(Query *queryTree)
 		if (rangeTableEntry->rtekind == RTE_RELATION)
 		{
 			queryTableCount++;
+
+			/* we do not expect to see a view in modify query */
+			if (rangeTableEntry->relkind == RELKIND_VIEW)
+			{
+				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("cannot perform distributed planning for the "
+									   "given modification"),
+								errdetail("Cannot modify views")));
+			}
 		}
 		else if (rangeTableEntry->rtekind == RTE_VALUES)
 		{
@@ -2250,7 +2307,7 @@ UpdateRelationNames(Node *node, RelationRestrictionContext *restrictionContext)
 
 	newRte = (RangeTblEntry *) node;
 
-	if (newRte->rtekind != RTE_RELATION)
+	if (newRte->rtekind != RTE_RELATION || newRte->relkind != RELKIND_RELATION)
 	{
 		return false;
 	}
