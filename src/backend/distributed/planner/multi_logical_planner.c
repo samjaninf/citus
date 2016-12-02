@@ -1475,8 +1475,11 @@ int
 GetRTEIdentity(RangeTblEntry *rte)
 {
 	Assert(rte->rtekind == RTE_RELATION);
-	Assert(IsA(rte->values_lists, IntList));
-	Assert(list_length(rte->values_lists) == 1);
+
+	if (rte->values_lists == NULL)
+	{
+		return 0;
+	}
 
 	return linitial_int(rte->values_lists);
 }

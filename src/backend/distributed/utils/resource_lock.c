@@ -21,6 +21,7 @@
 #include "distributed/master_metadata_utility.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/multi_router_executor.h"
+#include "distributed/multi_planner.h"
 #include "distributed/relay_utility.h"
 #include "distributed/resource_lock.h"
 #include "distributed/shardinterval_utils.h"
@@ -187,6 +188,31 @@ LockShardListResources(List *shardIntervalList, LOCKMODE lockMode)
 		int64 shardId = shardInterval->shardId;
 
 		LockShardResource(shardId, lockMode);
+	}
+}
+
+
+/*
+ * LockRelationShards takes locks on all shards in a list of RelationShards
+ * to prevent concurrent DML statements on those shards.
+ */
+void
+LockRelationShardListResources(List *relationShardList, LOCKMODE lockMode)
+{
+	ListCell *relationShardCell = NULL;
+
+	/* lock shards in order of shard id to prevent deadlock */
+	relationShardList = SortList(relationShardList, CompareRelationShardsByShardId);
+
+	foreach(relationShardCell, relationShardList)
+	{
+		RelationShard *relationShard = (RelationShard *) lfirst(relationShardCell);
+		uint64 shardId = relationShard->shardId;
+
+		if (shardId != INVALID_SHARD_ID)
+		{
+			LockShardResource(shardId, lockMode);
+		}
 	}
 }
 
