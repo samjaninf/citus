@@ -29,7 +29,6 @@
 #include "distributed/multi_logical_planner.h"
 #include "distributed/multi_logical_optimizer.h"
 #include "distributed/multi_physical_planner.h"
-#include "distributed/multi_router_executor.h"
 #include "distributed/multi_router_planner.h"
 #include "distributed/listutils.h"
 #include "distributed/citus_ruleutils.h"
@@ -68,6 +67,8 @@ typedef struct WalkerState
 	bool varArgument;
 	bool badCoalesce;
 } WalkerState;
+
+bool EnableRouterPlanner = true;
 
 /* planner functions forward declarations */
 static MultiPlan * CreateSingleTaskRouterPlan(Query *originalQuery, Query *query,
@@ -112,7 +113,7 @@ static List * IntersectPlacementList(List *lhsPlacementList, List *rhsPlacementL
 static bool UpdateRelationNames(Node *node,
 								RelationRestrictionContext *restrictionContext);
 static Job * RouterQueryJob(Query *query, Task *task, List *placementList);
-static bool MultiRouterPlannableQuery(Query *query, MultiExecutorType taskExecutorType,
+static bool MultiRouterPlannableQuery(Query *query,
 									  RelationRestrictionContext *restrictionContext);
 static RelationRestrictionContext * CopyRelationRestrictionContext(
 	RelationRestrictionContext *oldContext);
@@ -142,13 +143,11 @@ static void AddUninstantiatedEqualityQual(Query *query, Var *targetPartitionColu
  */
 MultiPlan *
 MultiRouterPlanCreate(Query *originalQuery, Query *query,
-					  MultiExecutorType taskExecutorType,
 					  RelationRestrictionContext *restrictionContext)
 {
 	MultiPlan *multiPlan = NULL;
 
-	bool routerPlannable = MultiRouterPlannableQuery(query, taskExecutorType,
-													 restrictionContext);
+	bool routerPlannable = MultiRouterPlannableQuery(query, restrictionContext);
 	if (!routerPlannable)
 	{
 		return NULL;
@@ -2354,8 +2353,7 @@ RouterQueryJob(Query *query, Task *task, List *placementList)
  * partition column. This feature is enabled if task executor is set to real-time
  */
 bool
-MultiRouterPlannableQuery(Query *query, MultiExecutorType taskExecutorType,
-						  RelationRestrictionContext *restrictionContext)
+MultiRouterPlannableQuery(Query *query, RelationRestrictionContext *restrictionContext)
 {
 	CmdType commandType = query->commandType;
 	ListCell *relationRestrictionContextCell = NULL;
@@ -2366,8 +2364,7 @@ MultiRouterPlannableQuery(Query *query, MultiExecutorType taskExecutorType,
 		return true;
 	}
 
-	/* FIXME: I tend to think it's time to remove this */
-	if (taskExecutorType != MULTI_EXECUTOR_REAL_TIME)
+	if (!EnableRouterPlanner)
 	{
 		return false;
 	}
