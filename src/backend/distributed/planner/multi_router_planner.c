@@ -1598,8 +1598,10 @@ TargetShardIntervalForModify(Query *query)
 	DistTableCacheEntry *cacheEntry = DistributedTableCacheEntry(distributedTableId);
 	char partitionMethod = cacheEntry->partitionMethod;
 	bool fastShardPruningPossible = false;
+	CmdType commandType = query->commandType;
+	bool updateOrDelete = (commandType == CMD_UPDATE || commandType == CMD_DELETE);
 
-	Assert(query->commandType != CMD_SELECT);
+	Assert(commandType != CMD_SELECT);
 
 	/* error out if no shards exist for the table */
 	shardCount = cacheEntry->shardIntervalArrayLength;
@@ -1641,7 +1643,14 @@ TargetShardIntervalForModify(Query *query)
 	}
 
 	prunedShardCount = list_length(prunedShardList);
-	if (prunedShardCount != 1)
+	if (updateOrDelete && prunedShardCount > 1 && prunedShardCount == shardCount)
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("distributed modifications must target exactly one "
+							   "shard"),
+						errhint("Consider using equality filter on partition column.")));
+	}
+	else if (prunedShardCount != 1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						errmsg("distributed modifications must target exactly one "
