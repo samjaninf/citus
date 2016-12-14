@@ -26,7 +26,7 @@
 /* reserved alias name for UPSERTs */
 #define CITUS_TABLE_ALIAS "citus_table_alias"
 
-extern bool EnableRouterPlanner;
+extern bool EnableRouterExecution;
 
 extern MultiPlan * MultiRouterPlanCreate(Query *originalQuery, Query *query,
 										 RelationRestrictionContext *restrictionContext);

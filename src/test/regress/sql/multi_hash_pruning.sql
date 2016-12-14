@@ -42,7 +42,7 @@ SELECT count(*) FROM orders_hash_partitioned
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey = abs(-1);
 
 -- disable router planning
-SET citus.enable_router_planner TO 'false';
+SET citus.enable_router_execution TO 'false';
 SELECT count(*) FROM orders_hash_partitioned;
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey = 1;
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey = 2;
@@ -52,7 +52,7 @@ SELECT count(*) FROM orders_hash_partitioned
 	WHERE o_orderkey = 1 AND o_clerk = 'aaa';
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey = abs(-1);
 
-SET citus.enable_router_planner TO DEFAULT;
+SET citus.enable_router_execution TO DEFAULT;
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey is NULL;
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey is not NULL;
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey > 2;

@@ -107,7 +107,7 @@ DEBUG:  Plan is router executable
 (1 row)
 
 -- disable router planning
-SET citus.enable_router_planner TO 'false';
+SET citus.enable_router_execution TO 'false';
 SELECT count(*) FROM orders_hash_partitioned;
  count 
 -------
@@ -169,7 +169,7 @@ DEBUG:  predicate pruning for shardId 630003
      0
 (1 row)
 
-SET citus.enable_router_planner TO DEFAULT;
+SET citus.enable_router_execution TO DEFAULT;
 SELECT count(*) FROM orders_hash_partitioned WHERE o_orderkey is NULL;
  count 
 -------

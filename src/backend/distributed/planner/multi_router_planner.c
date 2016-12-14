@@ -68,7 +68,7 @@ typedef struct WalkerState
 	bool badCoalesce;
 } WalkerState;
 
-bool EnableRouterPlanner = true;
+bool EnableRouterExecution = true;
 
 /* planner functions forward declarations */
 static MultiPlan * CreateSingleTaskRouterPlan(Query *originalQuery, Query *query,
@@ -2348,9 +2348,11 @@ RouterQueryJob(Query *query, Task *task, List *placementList)
 
 /*
  * MultiRouterPlannableQuery returns true if given query can be router plannable.
- * The query is router plannable if it is a select query issued on a hash
- * partitioned distributed table, and it has a exact match comparison on the
- * partition column. This feature is enabled if task executor is set to real-time
+ * The query is router plannable if it is a modify query, or if its is a select
+ * query issued on a hash partitioned distributed table, and it has a filter
+ * to reduce number of shard pairs to one, and all shard pairs are located on
+ * the same node. Router plannable checks for select queries can be turned off
+ * by setting citus.enable_router_execution flag to false.
  */
 bool
 MultiRouterPlannableQuery(Query *query, RelationRestrictionContext *restrictionContext)
@@ -2364,12 +2366,12 @@ MultiRouterPlannableQuery(Query *query, RelationRestrictionContext *restrictionC
 		return true;
 	}
 
-	if (!EnableRouterPlanner)
+	Assert(commandType == CMD_SELECT);
+
+	if (!EnableRouterExecution)
 	{
 		return false;
 	}
-
-	Assert(commandType == CMD_SELECT);
 
 	if (query->hasForUpdate)
 	{

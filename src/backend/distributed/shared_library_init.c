@@ -352,13 +352,13 @@ RegisterCitusConfigVariables(void)
 		NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		"citus.enable_router_planner",
-		gettext_noop("Enables router planner"),
+		"citus.enable_router_execution",
+		gettext_noop("Enables router execution"),
 		NULL,
-		&EnableRouterPlanner,
+		&EnableRouterExecution,
 		true,
 		PGC_USERSET,
-		0,
+		GUC_NO_SHOW_ALL,
 		NULL, NULL, NULL);
 
 	DefineCustomIntVariable(
