@@ -381,7 +381,6 @@ AS foo;
 DEBUG:  predicate pruning for shardId 270005
 DEBUG:  predicate pruning for shardId 270006
 DEBUG:  predicate pruning for shardId 270008
-DEBUG:  Plan is router executable
  count 
 -------
 (0 rows)
@@ -392,7 +391,6 @@ AS foo;
 DEBUG:  predicate pruning for shardId 270005
 DEBUG:  predicate pruning for shardId 270007
 DEBUG:  predicate pruning for shardId 270008
-DEBUG:  Plan is router executable
  count 
 -------
 (0 rows)
