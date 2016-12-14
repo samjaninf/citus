@@ -61,7 +61,8 @@
 
 /* local function forward declarations */
 static void ConvertToDistributedTable(Oid relationId, char *distributionColumnName,
-									  char distributionMethod, uint32 colocationId);
+									  char distributionMethod, uint32 colocationId,
+									  char replicationModel);
 static char LookupDistributionMethod(Oid distributionMethodOid);
 static void RecordDistributedRelationDependencies(Oid distributedRelationId,
 												  Node *distributionKey);
@@ -75,7 +76,8 @@ static void ErrorIfNotSupportedForeignConstraint(Relation relation,
 												 Var *distributionColumn,
 												 uint32 colocationId);
 static void InsertIntoPgDistPartition(Oid relationId, char distributionMethod,
-									  Var *distributionColumn, uint32 colocationId);
+									  Var *distributionColumn, uint32 colocationId,
+									  char replicationModel);
 static uint32 ColocationId(int shardCount, int replicationFactor,
 						   Oid distributionColumnType);
 static uint32 GetNextColocationId(void);
@@ -107,7 +109,8 @@ master_create_distributed_table(PG_FUNCTION_ARGS)
 	char distributionMethod = LookupDistributionMethod(distributionMethodOid);
 
 	ConvertToDistributedTable(distributedRelationId, distributionColumnName,
-							  distributionMethod, INVALID_COLOCATION_ID);
+							  distributionMethod, INVALID_COLOCATION_ID,
+							  REPLICATION_MODEL_COORDINATOR);
 
 	PG_RETURN_VOID();
 }
@@ -131,7 +134,8 @@ create_distributed_table(PG_FUNCTION_ARGS)
 	if (distributionMethod != DISTRIBUTE_BY_HASH)
 	{
 		ConvertToDistributedTable(relationId, distributionColumnName,
-								  distributionMethod, INVALID_COLOCATION_ID);
+								  distributionMethod, INVALID_COLOCATION_ID,
+								  REPLICATION_MODEL_COORDINATOR);
 		PG_RETURN_VOID();
 	}
 
@@ -184,13 +188,24 @@ create_reference_table(PG_FUNCTION_ARGS)
  */
 static void
 ConvertToDistributedTable(Oid relationId, char *distributionColumnName,
-						  char distributionMethod, uint32 colocationId)
+						  char distributionMethod, uint32 colocationId,
+						  char replicationModel)
 {
 	Relation relation = NULL;
 	TupleDesc relationDesc = NULL;
 	char *relationName = NULL;
 	char relationKind = 0;
 	Var *distributionColumn = NULL;
+
+	bool streamingReplication PG_USED_FOR_ASSERTS_ONLY =
+		(replicationModel == REPLICATION_MODEL_STREAMING);
+	bool coordinatorReplication PG_USED_FOR_ASSERTS_ONLY =
+		(replicationModel == REPLICATION_MODEL_COORDINATOR);
+	bool hashDistributed PG_USED_FOR_ASSERTS_ONLY =
+		(distributionMethod == DISTRIBUTE_BY_HASH);
+
+	Assert(streamingReplication || coordinatorReplication);
+	Assert(!(streamingReplication && !hashDistributed));
 
 	/*
 	 * Lock target relation with an exclusive lock - there's no way to make
@@ -280,7 +295,7 @@ ConvertToDistributedTable(Oid relationId, char *distributionColumnName,
 								  colocationId);
 
 	InsertIntoPgDistPartition(relationId, distributionMethod, distributionColumn,
-							  colocationId);
+							  colocationId, replicationModel);
 
 	relation_close(relation, NoLock);
 
@@ -600,10 +615,10 @@ ErrorIfNotSupportedForeignConstraint(Relation relation, char distributionMethod,
  */
 static void
 InsertIntoPgDistPartition(Oid relationId, char distributionMethod,
-						  Var *distributionColumn, uint32 colocationId)
+						  Var *distributionColumn, uint32 colocationId,
+						  char replicationModel)
 {
 	Relation pgDistPartition = NULL;
-	const char replicationModel = 'c';
 	char *distributionColumnString = NULL;
 
 	HeapTuple newTuple = NULL;
@@ -984,12 +999,23 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 	Var *distributionColumn = NULL;
 	Oid distributionColumnType = 0;
 	uint32 colocationId = INVALID_COLOCATION_ID;
+	char replicationModel = 0;
 
 	/* get distribution column type */
 	distributedRelation = relation_open(relationId, AccessShareLock);
 	distributionColumn = BuildDistributionKeyFromColumnName(distributedRelation,
 															distributionColumnName);
 	distributionColumnType = distributionColumn->vartype;
+
+	/* all hash-distributed tables with repfactor=1 are treated as MX tables */
+	if (replicationFactor == 1)
+	{
+		replicationModel = REPLICATION_MODEL_STREAMING;
+	}
+	else
+	{
+		replicationModel = REPLICATION_MODEL_COORDINATOR;
+	}
 
 	/*
 	 * Get an exclusive lock on the colocation system catalog. Therefore, we
@@ -1013,7 +1039,8 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 
 		Oid colocatedTableId = ColocatedTableId(colocationId);
 		ConvertToDistributedTable(relationId, distributionColumnName,
-								  DISTRIBUTE_BY_HASH, colocationId);
+								  DISTRIBUTE_BY_HASH, colocationId,
+								  replicationModel);
 
 		CreateColocatedShards(relationId, colocatedTableId);
 		ereport(DEBUG2, (errmsg("table %s is added to colocation group: %d",
@@ -1024,7 +1051,8 @@ CreateHashDistributedTable(Oid relationId, char *distributionColumnName,
 		colocationId = CreateColocationGroup(shardCount, replicationFactor,
 											 distributionColumnType);
 		ConvertToDistributedTable(relationId, distributionColumnName,
-								  DISTRIBUTE_BY_HASH, colocationId);
+								  DISTRIBUTE_BY_HASH, colocationId,
+								  replicationModel);
 
 		/* use the default way to create shards */
 		CreateShardsWithRoundRobinPolicy(relationId, shardCount, replicationFactor);
