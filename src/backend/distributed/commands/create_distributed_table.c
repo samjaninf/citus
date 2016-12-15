@@ -40,9 +40,11 @@
 #include "distributed/master_metadata_utility.h"
 #include "distributed/master_protocol.h"
 #include "distributed/metadata_cache.h"
+#include "distributed/metadata_sync.h"
 #include "distributed/multi_logical_planner.h"
 #include "distributed/pg_dist_colocation.h"
 #include "distributed/pg_dist_partition.h"
+#include "distributed/worker_transaction.h"
 #include "executor/spi.h"
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
@@ -142,6 +144,56 @@ create_distributed_table(PG_FUNCTION_ARGS)
 	/* use configuration values for shard count and shard replication factor*/
 	CreateHashDistributedTable(relationId, distributionColumnName, ShardCount,
 							   ShardReplicationFactor);
+
+	if (ShouldSyncTableMetadata(relationId))
+	{
+		DistTableCacheEntry *cacheEntry = DistributedTableCacheEntry(relationId);
+
+		List *shardIntervalList = NIL;
+		List *commandList = NIL;
+		List *foreignConstraintCommands = NIL;
+		List *shardCreateCommandList = NIL;
+		ListCell *commandCell = NULL;
+		char *tableOwnerResetCommand = NULL;
+		char *metadataCommand = NULL;
+		char *truncateTriggerCreateCommand = NULL;
+
+		/* commands to create the table */
+		commandList = GetTableDDLEvents(relationId);
+
+		/* command to reset the table owner */
+		tableOwnerResetCommand = TableOwnerResetCommand(relationId);
+		commandList = lappend(commandList, tableOwnerResetCommand);
+
+		/* command to insert pg_dist_partition entry */
+		metadataCommand = DistributionCreateCommand(cacheEntry);
+		commandList = lappend(commandList, metadataCommand);
+
+		/* commands to create the truncate trigger of the mx table */
+		truncateTriggerCreateCommand = TruncateTriggerCreateCommand(relationId);
+		commandList = lappend(commandList, truncateTriggerCreateCommand);
+
+		/* commands to insert pg_dist_shard & pg_dist_shard_placement entries */
+		shardIntervalList = LoadShardIntervalList(relationId);
+		shardCreateCommandList = ShardListInsertCommand(shardIntervalList);
+		commandList = list_concat(commandList, shardCreateCommandList);
+
+		/* commands to create foreign key constraints */
+		foreignConstraintCommands = GetTableForeignConstraintCommands(relationId);
+		commandList = list_concat(commandList, foreignConstraintCommands);
+
+		/* disable DDL propagation on workers */
+		SendCommandToWorkers(WORKERS_WITH_METADATA,
+							 "SET citus.enable_ddl_propagation TO off");
+
+		/* send the commands one by one */
+		foreach(commandCell, commandList)
+		{
+			char *command = (char *) lfirst(commandCell);
+
+			SendCommandToWorkers(WORKERS_WITH_METADATA, command);
+		}
+	}
 
 	PG_RETURN_VOID();
 }

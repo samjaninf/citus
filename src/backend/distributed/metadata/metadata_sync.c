@@ -44,7 +44,6 @@
 
 static char * LocalGroupIdUpdateCommand(uint32 groupId);
 static void MarkNodeHasMetadata(char *nodeName, int32 nodePort, bool hasMetadata);
-static char * TruncateTriggerCreateCommand(Oid relationId);
 
 
 PG_FUNCTION_INFO_V1(start_metadata_sync_to_node);
@@ -548,6 +547,24 @@ NodeDeleteCommand(uint32 nodeId)
 
 
 /*
+ * TruncateTriggerCreateCommand creates a SQL query calling worker_create_truncate_trigger
+ * function, which creates the truncate trigger on the worker.
+ */
+char *
+TruncateTriggerCreateCommand(Oid relationId)
+{
+	StringInfo triggerCreateCommand = makeStringInfo();
+	char *tableName = generate_qualified_relation_name(relationId);
+
+	appendStringInfo(triggerCreateCommand,
+					 "SELECT worker_create_truncate_trigger(%s)",
+					 quote_literal_cstr(tableName));
+
+	return triggerCreateCommand->data;
+}
+
+
+/*
  * LocalGroupIdUpdateCommand creates the SQL command required to set the local group id
  * of a worker and returns the command in a string.
  */
@@ -617,22 +634,4 @@ MarkNodeHasMetadata(char *nodeName, int32 nodePort, bool hasMetadata)
 
 	systable_endscan(scanDescriptor);
 	heap_close(pgDistNode, NoLock);
-}
-
-
-/*
- * TruncateTriggerCreateCommand creates a SQL query calling worker_create_truncate_trigger
- * function, which creates the truncate trigger on the worker.
- */
-static char *
-TruncateTriggerCreateCommand(Oid relationId)
-{
-	StringInfo triggerCreateCommand = makeStringInfo();
-	char *tableName = generate_qualified_relation_name(relationId);
-
-	appendStringInfo(triggerCreateCommand,
-					 "SELECT worker_create_truncate_trigger(%s)",
-					 quote_literal_cstr(tableName));
-
-	return triggerCreateCommand->data;
 }

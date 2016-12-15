@@ -28,6 +28,7 @@ extern char * TableOwnerResetCommand(Oid distributedRelationId);
 extern char * NodeListInsertCommand(List *workerNodeList);
 extern List * ShardListInsertCommand(List *shardIntervalList);
 extern char * NodeDeleteCommand(uint32 nodeId);
+extern char * TruncateTriggerCreateCommand(Oid relationId);
 
 
 #define DELETE_ALL_NODES "TRUNCATE pg_dist_node"
