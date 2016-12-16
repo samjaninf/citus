@@ -46,6 +46,7 @@
 #include "distributed/metadata_cache.h"
 #include "distributed/pg_dist_shard.h"
 #include "distributed/worker_manager.h"
+#include "distributed/worker_protocol.h"
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
 #include "nodes/pg_list.h"
@@ -781,9 +782,13 @@ GetTableForeignConstraintCommands(Oid relationId)
 			Oid constraintId = get_relation_constraint_oid(relationId,
 														   constraintForm->conname.data,
 														   true);
-			char *statementDef = pg_get_constraintdef_command(constraintId);
 
-			tableForeignConstraints = lappend(tableForeignConstraints, statementDef);
+			char *statementDef = pg_get_constraintdef_command(constraintId);
+			char *statementWithNotValidClause =
+				GenerateForeignConstraintCommandWithNotValid(statementDef);
+
+			tableForeignConstraints = lappend(tableForeignConstraints,
+											  statementWithNotValidClause);
 		}
 
 		heapTuple = systable_getnext(scanDescriptor);
@@ -797,6 +802,66 @@ GetTableForeignConstraintCommands(Oid relationId)
 	PopOverrideSearchPath();
 
 	return tableForeignConstraints;
+}
+
+
+/*
+ * GenerateForeignConstraintCommandWithNotValid takes a ALTER TABLE ... ADD FOREIGN KEY
+ * command and generates a new command which is exactly the same, other than the
+ * prepended NOT VALID part, which allows creation of the constraint with the validation
+ * step skipped.
+ *
+ * The function requires that the given command is an ALTER TABLE query with only one
+ * ADD FOREIGN KEY command.
+ */
+char *
+GenerateForeignConstraintCommandWithNotValid(char *constraintCommand)
+{
+	Node *parsetree = ParseTreeNode(constraintCommand);
+	AlterTableStmt *alterTableStatemet = NULL;
+	List *commandList = NIL;
+	AlterTableCmd *alterTableCommand = NULL;
+	Constraint *constraint = NULL;
+	StringInfo commandWithNotValid = makeStringInfo();
+
+	Assert(IsA(parsetree, AlterTableStmt));
+
+	alterTableStatemet = (AlterTableStmt *) parsetree;
+	commandList = alterTableStatemet->cmds;
+
+	if (list_length(commandList) > 1)
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("ALTER TABLE .. FOREIGN KEY statements with "
+							   "more than one command are not supported.")));
+	}
+
+	alterTableCommand = (AlterTableCmd *) lfirst(commandList->head);
+	constraint = (Constraint *) alterTableCommand->def;
+
+	Assert(alterTableCommand->subtype == AT_AddConstraint);
+	Assert(constraint->contype == CONSTR_FOREIGN);
+
+	appendStringInfo(commandWithNotValid, "%s", constraintCommand);
+
+	/* add the NOT VALID clause if the original command does not containts it */
+	if (constraint->skip_validation != true)
+	{
+		/* strip any trailing spaces and semicolons */
+		int length = commandWithNotValid->len;
+		while (isspace((unsigned char) commandWithNotValid->data[length - 1]) ||
+			   commandWithNotValid->data[length - 1] == ';')
+		{
+			commandWithNotValid->data[length - 1] = '\0';
+			length--;
+		}
+
+		commandWithNotValid->len = length;
+
+		appendStringInfo(commandWithNotValid, " NOT VALID");
+	}
+
+	return commandWithNotValid->data;
 }
 
 

@@ -97,6 +97,7 @@ extern uint64 GetNextShardId(void);
 extern Oid ResolveRelationId(text *relationName);
 extern List * GetTableDDLEvents(Oid relationId);
 extern List * GetTableForeignConstraintCommands(Oid relationId);
+extern char * GenerateForeignConstraintCommandWithNotValid(char *constraintCommand);
 extern char ShardStorageType(Oid relationId);
 extern void CheckDistributedTable(Oid relationId);
 extern void CreateShardPlacements(Oid relationId, int64 shardId, List *ddlEventList,

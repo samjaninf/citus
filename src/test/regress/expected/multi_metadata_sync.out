@@ -290,7 +290,7 @@ Table "mx_testing_schema_2.fk_test_2"
  col2   | integer | 
  col3   | text    | 
 Foreign-key constraints:
-    "fk_test_2_col1_fkey" FOREIGN KEY (col1, col2) REFERENCES mx_testing_schema.fk_test_1(col1, col3)
+    "fk_test_2_col1_fkey" FOREIGN KEY (col1, col2) REFERENCES mx_testing_schema.fk_test_1(col1, col3) NOT VALID
 
 \c - - - :master_port
 RESET citus.shard_replication_factor;
@@ -513,7 +513,7 @@ Indexes:
     "mx_table_1_col1_key" UNIQUE CONSTRAINT, btree (col1)
     "mx_index_1" btree (col1)
 Referenced by:
-    TABLE "mx_test_schema_2.mx_table_2" CONSTRAINT "mx_fk_constraint" FOREIGN KEY (col1) REFERENCES mx_test_schema_1.mx_table_1(col1)
+    TABLE "mx_test_schema_2.mx_table_2" CONSTRAINT "mx_fk_constraint" FOREIGN KEY (col1) REFERENCES mx_test_schema_1.mx_table_1(col1) NOT VALID
 
 \d mx_test_schema_2.mx_table_2
 Table "mx_test_schema_2.mx_table_2"
@@ -524,7 +524,7 @@ Table "mx_test_schema_2.mx_table_2"
 Indexes:
     "mx_index_2" btree (col2)
 Foreign-key constraints:
-    "mx_fk_constraint" FOREIGN KEY (col1) REFERENCES mx_test_schema_1.mx_table_1(col1)
+    "mx_fk_constraint" FOREIGN KEY (col1) REFERENCES mx_test_schema_1.mx_table_1(col1) NOT VALID
 
 -- Check that table metadata are created
 SELECT 
