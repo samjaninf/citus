@@ -37,6 +37,7 @@
 #include "distributed/master_metadata_utility.h"
 #include "distributed/master_protocol.h"
 #include "distributed/metadata_cache.h"
+#include "distributed/metadata_sync.h"
 #include "distributed/multi_copy.h"
 #include "distributed/multi_join_order.h"
 #include "distributed/multi_planner.h"
@@ -48,6 +49,7 @@
 #include "distributed/resource_lock.h"
 #include "distributed/transmit.h"
 #include "distributed/worker_protocol.h"
+#include "distributed/worker_transaction.h"
 #include "executor/executor.h"
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
@@ -1578,6 +1580,7 @@ ExecuteDistributedDDLCommand(Oid relationId, const char *ddlCommandString,
 							 bool isTopLevel)
 {
 	List *taskList = NIL;
+	bool shouldSyncMetadata = ShouldSyncTableMetadata(relationId);
 
 	if (XactModificationLevel == XACT_MODIFICATION_DATA)
 	{
@@ -1588,6 +1591,13 @@ ExecuteDistributedDDLCommand(Oid relationId, const char *ddlCommandString,
 	}
 
 	ShowNoticeIfNotUsing2PC();
+
+	if (shouldSyncMetadata)
+	{
+		SendCommandToWorkers(WORKERS_WITH_METADATA,
+							 "SET citus.enable_ddl_propagation TO off");
+		SendCommandToWorkers(WORKERS_WITH_METADATA, (char *) ddlCommandString);
+	}
 
 	taskList = DDLTaskList(relationId, ddlCommandString);
 
@@ -1612,6 +1622,7 @@ ExecuteDistributedForeignKeyCommand(Oid leftRelationId, Oid rightRelationId,
 									const char *ddlCommandString, bool isTopLevel)
 {
 	List *taskList = NIL;
+	bool syncMetadata = false;
 
 	if (XactModificationLevel == XACT_MODIFICATION_DATA)
 	{
@@ -1622,6 +1633,22 @@ ExecuteDistributedForeignKeyCommand(Oid leftRelationId, Oid rightRelationId,
 	}
 
 	ShowNoticeIfNotUsing2PC();
+
+	/*
+	 * It is sufficient to check only one of the tables for metadata syncing on workers,
+	 * since the colocation of two tables implies that either both or none of them have
+	 * metadata on workers.
+	 */
+	syncMetadata = ShouldSyncTableMetadata(leftRelationId);
+	if (syncMetadata)
+	{
+		char *foreignKeyCommandWithNotValid =
+			GenerateForeignConstraintCommandWithNotValid((char *) ddlCommandString);
+
+		SendCommandToWorkers(WORKERS_WITH_METADATA,
+							 "SET citus.enable_ddl_propagation TO off");
+		SendCommandToWorkers(WORKERS_WITH_METADATA, foreignKeyCommandWithNotValid);
+	}
 
 	taskList = ForeignKeyTaskList(leftRelationId, rightRelationId, ddlCommandString);
 
